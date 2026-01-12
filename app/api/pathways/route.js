@@ -96,12 +96,17 @@ export async function POST(req) {
           fallbackReason(character, finalLabel);
       }
     }
+// helper
+function labelToNumber(label) {
+  return label === "Consistent" ? 1 : 0;
+}
 
-    return NextResponse.json({
-      id,
-      label: finalLabel,
-      reason: finalReason
-    });
+// inside POST handler
+return NextResponse.json({
+  id,
+  label: labelToNumber(finalLabel),
+  reason: finalReason
+});
 
   } catch (err) {
     console.error(err);
