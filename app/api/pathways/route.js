@@ -98,7 +98,7 @@ export async function POST(req) {
     }
 // helper
 function labelToNumber(label) {
-  return label === "Consistent" ? 1 : 0;
+  return label === "consistent" ? 1 : 0;
 }
 
 // inside POST handler
