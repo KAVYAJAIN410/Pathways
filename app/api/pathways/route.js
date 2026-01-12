@@ -102,7 +102,7 @@ else {
 
       const question =
         `tell why the backstory: ${content}; for ` +
-        `given character: ${character} is ${label} with the novel`;
+        `given character: ${character} is ${label} with the narrative`;
 
       results.push({ id, question });
     }
