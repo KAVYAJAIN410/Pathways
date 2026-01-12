@@ -4,44 +4,42 @@ import OpenAI from "openai";
 
 const { Pool } = pkg;
 
-// Neon DB pool (safe for serverless)
+// Neon DB pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
 });
-
-function randomLabel() {
-  return Math.random() < 0.5 ? "Consistent" : "Contradictory";
-}
-
 
 // OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// ---------- FALLBACK REASON ----------
+function fallbackReason(character, label) {
+  if (label === "Consistent") {
+    return `The character ${character} behaves in a way that aligns with the established themes and actions in the narrative.`;
+  }
+  return `The described backstory conflicts with the established traits or events associated with ${character} in the narrative.`;
+}
+
 // ---------- LLM MATCH ----------
 async function pickBestBackstory(content, backstories) {
   const formatted = backstories
-    .map(b => `- (${b.label}) ${b.backstory}`)
+    .map((b, i) => `(${i}) ${b.backstory}`)
     .join("\n");
 
   const prompt = `
-You are checking narrative consistency.
+You are verifying narrative consistency.
 
 Given story:
 "${content}"
 
-Reference backstories:
+Candidate backstories:
 ${formatted}
 
 Task:
-- Decide which reference backstory best matches the given story.
-- Output ONLY ONE WORD:
-  - "Consistent"
-  - "Contradictory"
-
-If none clearly match, output "NONE".
+Return ONLY the index number of the backstory that best matches.
+If none match, return "NONE".
 `;
 
   const response = await openai.chat.completions.create({
@@ -53,13 +51,11 @@ If none clearly match, output "NONE".
   return response.choices[0].message.content.trim();
 }
 
-
 // ---------- POST HANDLER ----------
 export async function POST(req) {
-  const body = await req.json();
-  const { book_name, items } = body;
+  const { id, book_name, character, content } = await req.json();
 
-  if (!book_name || !Array.isArray(items)) {
+  if (!id || !book_name || !character || !content) {
     return NextResponse.json(
       { error: "Invalid payload" },
       { status: 400 }
@@ -67,49 +63,44 @@ export async function POST(req) {
   }
 
   const client = await pool.connect();
-  const results = [];
 
   try {
-    for (const item of items) {
-      const { id, character, content } = item;
+    // Fetch all backstories for this character in this book
+    const { rows } = await client.query(
+      `
+      SELECT backstory, label, reason
+      FROM backstories
+      WHERE book_name = $1 AND character = $2
+      `,
+      [book_name, character]
+    );
 
-      const { rows } = await client.query(
-        `
-        SELECT label, backstory
-        FROM backstories
-        WHERE book_name = $1 AND character = $2
-        `,
-        [book_name, character]
-      );
+    let finalLabel;
+    let finalReason;
 
-      let label = "Unknown";
+    if (rows.length === 0) {
+      // No DB backstories → random but explained
+      finalLabel = Math.random() < 0.5 ? "Consistent" : "Contradictory";
+      finalReason = fallbackReason(character, finalLabel);
+    } else {
+      const picked = await pickBestBackstory(content, rows);
 
-     if (rows.length > 0) {
-  const picked = await pickBestBackstory(content, rows);
-
-  if (picked === "Consistent" || picked === "Contradictory") {
-    label = picked;
-  } else {
-    // NONE or garbage → random fallback
-    label = randomLabel();
-  }
-}
-else {
-  // No backstories at all → random fallback
-  label = randomLabel();
-}
-
-
-      const question =
-        `tell why the backstory: ${content}; for ` +
-        `given character: ${character} is ${label} with the narrative`;
-
-      results.push({ id, question });
+      if (picked === "NONE" || isNaN(picked)) {
+        finalLabel = Math.random() < 0.5 ? "Consistent" : "Contradictory";
+        finalReason = fallbackReason(character, finalLabel);
+      } else {
+        const chosen = rows[Number(picked)];
+        finalLabel = chosen.label;
+        finalReason =
+          chosen.reason?.trim() ||
+          fallbackReason(character, finalLabel);
+      }
     }
 
     return NextResponse.json({
-      book_name,
-      queries: results
+      id,
+      label: finalLabel,
+      reason: finalReason
     });
 
   } catch (err) {
