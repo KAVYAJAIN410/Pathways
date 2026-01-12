@@ -8,7 +8,11 @@
     "start": "next start"
   },
   "dependencies": {
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.2.3",
     "next": "16.1.1",
+    "openai": "^6.16.0",
+    "pg": "^8.16.3",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
